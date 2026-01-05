@@ -1,3 +1,6 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambda functions for Earthquake Lambda Architecture
+
 Resources:
 
   EarthquakeProducerLambda:
@@ -6,11 +9,12 @@ Resources:
       FunctionName: earthquake-producer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: arn:aws:iam::430006376054:role/prathyusha-earthquake-producer-role-sp3soaq6
+      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
       Code:
         S3Bucket: prathyusha-earthquake-artifacts
         S3Key: lambdas/producer.zip
       Timeout: 60
+      MemorySize: 256
       Environment:
         Variables:
           KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
@@ -22,11 +26,12 @@ Resources:
       FunctionName: earthquake-consumer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: arn:aws:iam::430006376054:role/prathyusha-earthquake-producer-role-sp3soaq6
+      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
       Code:
         S3Bucket: prathyusha-earthquake-artifacts
         S3Key: lambdas/consumer.zip
       Timeout: 60
+      MemorySize: 256
       Environment:
         Variables:
           DDB_TABLE_NAME: earthquake-lambda-architecture-latest
