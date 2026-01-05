@@ -1,11 +1,3 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: Lambda functions for Earthquake Lambda Architecture
-
-Parameters:
-  SharedRoleArn:
-    Type: String
-    Description: ARN of shared IAM role
-
 Resources:
 
   EarthquakeProducerLambda:
@@ -14,14 +6,15 @@ Resources:
       FunctionName: earthquake-producer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: !Ref SharedRoleArn
+      Role:
+        Fn::ImportValue: EarthquakeSharedExecutionRoleArn
       Code:
         S3Bucket: PLACEHOLDER_BUCKET
         S3Key: PLACEHOLDER_KEY
       Timeout: 60
       Environment:
         Variables:
-          KINESIS_STREAM_NAME: earthquake-stream
+          KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
           USGS_URL: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson
 
   EarthquakeConsumerLambda:
@@ -30,15 +23,16 @@ Resources:
       FunctionName: earthquake-consumer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: !Ref SharedRoleArn
+      Role:
+        Fn::ImportValue: EarthquakeSharedExecutionRoleArn
       Code:
         S3Bucket: PLACEHOLDER_BUCKET
         S3Key: PLACEHOLDER_KEY
       Timeout: 60
       Environment:
         Variables:
-          DDB_TABLE_NAME: earthquake-latest
-          SNS_TOPIC_NAME: earthquake-alerts
-          DLQ_QUEUE_NAME: earthquake-dlq
+          DDB_TABLE_NAME: earthquake-lambda-architecture-latest
+          SNS_TOPIC_NAME: earthquake-lambda-architecture-alerts
+          DLQ_QUEUE_NAME: earthquake-lambda-architecture-dlq
           RAW_S3_PREFIX: earthquake-lambda-architecture/raw/
           SERVING_S3_PREFIX: earthquake-lambda-architecture/serving/
