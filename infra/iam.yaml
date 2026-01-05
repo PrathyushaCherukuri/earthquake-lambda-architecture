@@ -1,7 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: IAM layer for Earthquake Lambda Architecture (reuse existing role)
 
-Resources: {}
+Resources:
+  Placeholder:
+    Type: AWS::CloudFormation::WaitConditionHandle
 
 Outputs:
   SharedExecutionRoleArn:
