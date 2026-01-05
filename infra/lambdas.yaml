@@ -6,8 +6,7 @@ Resources:
       FunctionName: earthquake-producer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role:
-        Fn::ImportValue: EarthquakeSharedExecutionRoleArn
+      Role: arn:aws:iam::430006376054:role/prathyusha-earthquake-producer-role-sp3soaq6
       Code:
         S3Bucket: prathyusha-earthquake-artifacts
         S3Key: lambdas/producer.zip
@@ -23,8 +22,7 @@ Resources:
       FunctionName: earthquake-consumer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role:
-        Fn::ImportValue: EarthquakeSharedExecutionRoleArn
+      Role: arn:aws:iam::430006376054:role/prathyusha-earthquake-producer-role-sp3soaq6
       Code:
         S3Bucket: prathyusha-earthquake-artifacts
         S3Key: lambdas/consumer.zip
