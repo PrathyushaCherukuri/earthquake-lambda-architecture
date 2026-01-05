@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Glue batch infrastructure for Earthquake Lambda Architecture
+
+Parameters:
+  SharedRoleArn:
+    Type: String
+    Description: ARN of shared IAM role
+
+Resources:
+
+  EarthquakeGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: earthquake-raw-to-curated
+      Role: !Ref SharedRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: s3://PLACEHOLDER_BUCKET/glue/raw_to_curated.py
+        PythonVersion: 3
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": ""
+      GlueVersion: "3.0"
+      NumberOfWorkers: 2
+      WorkerType: G.1X
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
