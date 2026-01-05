@@ -9,8 +9,8 @@ Resources:
       Role:
         Fn::ImportValue: EarthquakeSharedExecutionRoleArn
       Code:
-        S3Bucket: PLACEHOLDER_BUCKET
-        S3Key: PLACEHOLDER_KEY
+        S3Bucket: prathyusha-earthquake-artifacts
+        S3Key: lambdas/producer.zip
       Timeout: 60
       Environment:
         Variables:
@@ -26,8 +26,8 @@ Resources:
       Role:
         Fn::ImportValue: EarthquakeSharedExecutionRoleArn
       Code:
-        S3Bucket: PLACEHOLDER_BUCKET
-        S3Key: PLACEHOLDER_KEY
+        S3Bucket: prathyusha-earthquake-artifacts
+        S3Key: lambdas/consumer.zip
       Timeout: 60
       Environment:
         Variables:
