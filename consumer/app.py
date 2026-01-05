@@ -19,11 +19,14 @@ sqs = boto3.client("sqs")
 # Environment variables
 # --------------------
 RAW_BUCKET = os.environ["RAW_BUCKET"]
-RAW_PREFIX = os.environ.get("RAW_PREFIX", "raw/earthquakes")
 
-SERVING_PREFIX = os.environ.get(
-    "SERVING_PREFIX", "serving/earthquakes_stream"
+# 🔑 PROJECT ROOT PREFIX (NEW)
+PROJECT_PREFIX = os.environ.get(
+    "PROJECT_PREFIX", "earthquake-lambda-architecture"
 )
+
+RAW_PREFIX = f"{PROJECT_PREFIX}/raw/earthquakes"
+SERVING_PREFIX = f"{PROJECT_PREFIX}/serving/earthquakes_stream"
 
 DDB_TABLE = os.environ["DDB_TABLE"]
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
