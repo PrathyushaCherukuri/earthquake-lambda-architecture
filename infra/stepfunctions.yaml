@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Step Functions orchestration for Earthquake Lambda Architecture
+
+Parameters:
+  SharedRoleArn:
+    Type: String
+    Description: ARN of shared IAM role
+
+Resources:
+
+  EarthquakeStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: earthquake-orchestration
+      RoleArn: !Ref SharedRoleArn
+      DefinitionString: |
+        {
+          "Comment": "Orchestration for Earthquake data pipeline",
+          "StartAt": "RunProducer",
+          "States": {
+            "RunProducer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "earthquake-producer"
+              },
+              "Next": "RunGlueBatch"
+            },
+            "RunGlueBatch": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "earthquake-raw-to-curated"
+              },
+              "End": true
+            }
+          }
+        }
