@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Streaming infrastructure for Earthquake Lambda Architecture
+
+Resources:
+
+  EarthquakeKinesisStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: earthquake-stream
+      ShardCount: 1
+      RetentionPeriodHours: 24
+
+  EarthquakeDynamoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: earthquake-latest
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: quake_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: quake_id
+          KeyType: HASH
+
+  EarthquakeAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: earthquake-alerts
+
+  EarthquakeDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: earthquake-dlq
