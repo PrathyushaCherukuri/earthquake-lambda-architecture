@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Shared IAM role for Earthquake Lambda Architecture
+
+Resources:
+  EarthquakeSharedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: earthquake-shared-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - glue.amazonaws.com
+                - states.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  EarthquakeSharedPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: earthquake-shared-policy
+      Roles:
+        - !Ref EarthquakeSharedRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - arn:aws:s3:::prathyusha-project
+              - arn:aws:s3:::prathyusha-project/*
+
+          - Effect: Allow
+            Action:
+              - kinesis:PutRecord
+              - kinesis:PutRecords
+              - kinesis:GetRecords
+              - kinesis:GetShardIterator
+              - kinesis:DescribeStream
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:GetItem
+              - dynamodb:DescribeTable
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - sqs:SendMessage
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - glue:*
+            Resource: "*"
