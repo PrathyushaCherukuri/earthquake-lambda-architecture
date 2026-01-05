@@ -6,14 +6,14 @@ Resources:
   EarthquakeKinesisStream:
     Type: AWS::Kinesis::Stream
     Properties:
-      Name: earthquake-stream
+      Name: earthquake-lambda-architecture-stream
       ShardCount: 1
       RetentionPeriodHours: 24
 
   EarthquakeDynamoTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: earthquake-latest
+      TableName: earthquake-lambda-architecture-latest
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: quake_id
@@ -25,9 +25,9 @@ Resources:
   EarthquakeAlertsTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: earthquake-alerts
+      TopicName: earthquake-lambda-architecture-alerts
 
   EarthquakeDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: earthquake-dlq
+      QueueName: earthquake-lambda-architecture-dlq
