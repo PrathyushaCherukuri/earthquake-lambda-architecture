@@ -20,13 +20,17 @@ sqs = boto3.client("sqs")
 # --------------------
 RAW_BUCKET = os.environ["RAW_BUCKET"]
 RAW_PREFIX = os.environ.get("RAW_PREFIX", "raw/earthquakes")
-DDB_TABLE = os.environ["DDB_TABLE"]
 
+SERVING_PREFIX = os.environ.get(
+    "SERVING_PREFIX", "serving/earthquakes_stream"
+)
+
+DDB_TABLE = os.environ["DDB_TABLE"]
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 DLQ_URL = os.environ["DLQ_URL"]
 
-ALERT_MAG_THRESHOLD = 4.0
-MIN_VALID_MAG = 0.5
+ALERT_MAG_THRESHOLD = float(os.environ.get("ALERT_MAG_THRESHOLD", 4.0))
+MIN_VALID_MAG = float(os.environ.get("MIN_VALID_MAG", 0.5))
 
 # --------------------
 # Helper functions
@@ -55,15 +59,14 @@ def send_to_dlq(reason, record):
     )
 
 # --------------------
-# CORE PROCESSING LOGIC
+# Core processing logic
 # --------------------
 def process_record(obj, allow_alerts=True):
     """
     Core business logic.
-    This function is reusable for:
-    - streaming (Kinesis)
-    - replay
-    - batch reprocessing
+    Reused for:
+    - Streaming (Kinesis)
+    - Replay
     """
 
     feature = obj.get("feature", {})
@@ -74,12 +77,12 @@ def process_record(obj, allow_alerts=True):
     quake_id = feature.get("id")
     if not quake_id:
         send_to_dlq("missing_quake_id", obj)
-        return "dlq"
+        return "dlq", None
 
     mag = _safe_float(props.get("mag"))
     if mag < MIN_VALID_MAG:
         send_to_dlq("magnitude_below_threshold", obj)
-        return "dlq"
+        return "dlq", None
 
     updated_ms = _safe_int(props.get("updated"))
     event_time_ms = _safe_int(props.get("time"))
@@ -127,29 +130,52 @@ def process_record(obj, allow_alerts=True):
                     f"🚨 Earthquake Alert 🚨\n\n"
                     f"Magnitude: {mag}\n"
                     f"Location: {props.get('place')}\n"
-                    f"Event Time: {event_time_ms}\n"
+                    f"Event Time (ms): {event_time_ms}\n"
                     f"URL: {props.get('url')}"
                 ),
             )
 
-        return "processed"
+        return "processed", flatten_for_serving(obj)
 
     except ClientError as e:
         if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return "skipped"
+            return "skipped", None
 
         send_to_dlq("ddb_error", obj)
-        return "dlq"
+        return "dlq", None
 
 # --------------------
-# STREAMING ENTRY POINT
+# Flatten record for serving layer
+# --------------------
+def flatten_for_serving(obj):
+    feature = obj["feature"]
+    props = feature["properties"]
+    coords = feature["geometry"]["coordinates"]
+
+    return {
+        "quake_id": feature["id"],
+        "mag": props.get("mag"),
+        "place": props.get("place"),
+        "title": props.get("title"),
+        "event_time_ms": props.get("time"),
+        "updated_ms": props.get("updated"),
+        "lon": coords[0],
+        "lat": coords[1],
+        "depth_km": coords[2],
+        "pipeline_type": "stream"
+    }
+
+# --------------------
+# Streaming entry point
 # --------------------
 def lambda_handler(event, context):
     records = event.get("Records", [])
     if not records:
         return {"status": "ok", "message": "No records"}
 
-    decoded = []
+    raw_events = []
+    serving_events = []
+
     stats = {
         "processed": 0,
         "skipped": 0,
@@ -160,34 +186,55 @@ def lambda_handler(event, context):
         try:
             raw = base64.b64decode(r["kinesis"]["data"]).decode("utf-8")
             obj = json.loads(raw)
-            decoded.append(obj)
+            raw_events.append(obj)
 
-            result = process_record(obj, allow_alerts=True)
+            result, serving_row = process_record(obj, allow_alerts=True)
             stats[result] += 1
+
+            if serving_row:
+                serving_events.append(serving_row)
 
         except Exception:
             send_to_dlq("parse_error", r)
             stats["dlq"] += 1
 
-    # --------------------
-    # Write RAW events to S3
-    # --------------------
     now = datetime.now(timezone.utc)
-    key = (
+
+    # --------------------
+    # Write RAW events (immutable log)
+    # --------------------
+    raw_key = (
         f"{RAW_PREFIX}/dt={now:%Y-%m-%d}/hour={now:%H}/"
         f"batch_{int(time.time())}_{uuid.uuid4().hex}.jsonl"
     )
 
     s3.put_object(
         Bucket=RAW_BUCKET,
-        Key=key,
-        Body="\n".join(json.dumps(x) for x in decoded).encode("utf-8"),
+        Key=raw_key,
+        Body="\n".join(json.dumps(x) for x in raw_events).encode("utf-8"),
         ContentType="application/json",
     )
+
+    # --------------------
+    # Write STREAM serving output
+    # --------------------
+    if serving_events:
+        serving_key = (
+            f"{SERVING_PREFIX}/dt={now:%Y-%m-%d}/hour={now:%H}/"
+            f"stream_{int(time.time())}_{uuid.uuid4().hex}.jsonl"
+        )
+
+        s3.put_object(
+            Bucket=RAW_BUCKET,
+            Key=serving_key,
+            Body="\n".join(json.dumps(x) for x in serving_events).encode("utf-8"),
+            ContentType="application/json",
+        )
 
     return {
         "status": "ok",
         "records": len(records),
         **stats,
-        "s3_key": key,
+        "raw_s3_key": raw_key,
+        "stream_s3_written": len(serving_events)
     }
