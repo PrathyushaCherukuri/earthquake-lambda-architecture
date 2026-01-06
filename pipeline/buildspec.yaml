@@ -7,18 +7,18 @@ phases:
 
   build:
     commands:
-      - echo "Packaging Lambda functions"
-      - mkdir -p artifacts
+      - echo "Zipping Lambda functions"
+      - mkdir -p dist
 
-      - zip -r artifacts/producer.zip lambdas/producer
-      - zip -r artifacts/consumer.zip lambdas/consumer
-      - zip -r artifacts/replay.zip lambdas/replay
+      - cd lambdas/producer && zip -r ../../dist/producer.zip . && cd ../..
+      - cd lambdas/consumer && zip -r ../../dist/consumer.zip . && cd ../..
+      - cd lambdas/replay && zip -r ../../dist/replay.zip . && cd ../..
 
       - echo "Build completed"
 
 artifacts:
   files:
-    - artifacts/*
+    - dist/*
     - infra/*
     - glue/*
     - serving/*
