@@ -1,36 +1,69 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Step Function for replay + batch orchestration (Earthquake Lambda Architecture)
+Description: Master orchestration with retries, catch, and alerts
 
 Parameters:
 
   StateMachineName:
     Type: String
-    Default: earthquake-orchestration
+    Default: earthquake-master-orchestration
 
   StepFunctionRoleArn:
     Type: String
-    Description: Existing IAM role ARN for Step Functions
+    Description: Existing Step Functions execution role ARN
+
+  ProducerLambdaArn:
+    Type: String
 
   ReplayLambdaArn:
     Type: String
-    Description: ARN of the replay Lambda function
 
   GlueJobName:
     Type: String
     Default: earthquake-raw-to-curated
 
+  AlertsTopicArn:
+    Type: String
+    Description: SNS topic ARN for failure alerts
+
 Resources:
 
-  EarthquakeOrchestrationStateMachine:
+  EarthquakeMasterStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
       StateMachineName: !Ref StateMachineName
       RoleArn: !Ref StepFunctionRoleArn
       DefinitionString: !Sub |
         {
-          "Comment": "Orchestrates replay and batch processing for earthquake data",
-          "StartAt": "ReplayDLQ",
+          "Comment": "Master orchestration for Earthquake Lambda Architecture",
+          "StartAt": "InvokeProducer",
           "States": {
+
+            "InvokeProducer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProducerLambdaArn}",
+                "Payload": {}
+              },
+              "Retry": [{
+                "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                "IntervalSeconds": 5,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }],
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "Next": "NotifyFailure"
+              }],
+              "Next": "WaitForStreaming"
+            },
+
+            "WaitForStreaming": {
+              "Type": "Wait",
+              "Seconds": 60,
+              "Next": "ReplayDLQ"
+            },
+
             "ReplayDLQ": {
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
@@ -38,21 +71,52 @@ Resources:
                 "FunctionName": "${ReplayLambdaArn}",
                 "Payload": {}
               },
-              "ResultPath": "$.replayResult",
+              "Retry": [{
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 2
+              }],
               "Next": "RunGlueBatch"
             },
+
             "RunGlueBatch": {
               "Type": "Task",
               "Resource": "arn:aws:states:::glue:startJobRun.sync",
               "Parameters": {
                 "JobName": "${GlueJobName}"
               },
+              "Retry": [{
+                "ErrorEquals": ["States.ALL"],
+                "IntervalSeconds": 30,
+                "MaxAttempts": 2
+              }],
+              "Catch": [{
+                "ErrorEquals": ["States.ALL"],
+                "Next": "NotifyFailure"
+              }],
               "End": true
+            },
+
+            "NotifyFailure": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${AlertsTopicArn}",
+                "Message": {
+                  "Fn::Sub": "Earthquake pipeline failed. Execution: ${$}"
+                },
+                "Subject": "Earthquake Pipeline Failure"
+              },
+              "Next": "FailState"
+            },
+
+            "FailState": {
+              "Type": "Fail",
+              "Cause": "Pipeline failed"
             }
           }
         }
 
 Outputs:
-  OrchestrationStateMachineArn:
-    Description: ARN of the orchestration Step Function
-    Value: !Ref EarthquakeOrchestrationStateMachine
+  MasterStateMachineArn:
+    Value: !Ref EarthquakeMasterStateMachine
