@@ -1,16 +1,22 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Lambda functions for Earthquake Lambda Architecture (reuse existing ARNs)
+Description: Lambda functions for Earthquake Lambda Architecture (CloudFormation-first, production-ready)
 
 Parameters:
 
+  # --------------------------------------------------
+  # Shared / Existing Resources
+  # --------------------------------------------------
   LambdaExecutionRoleArn:
     Type: String
-    Description: Existing IAM role ARN for Lambda & Step Functions
+    Description: Existing IAM role ARN for Lambda execution
 
   ArtifactBucket:
     Type: String
     Description: S3 bucket containing lambda zip artifacts
 
+  # --------------------------------------------------
+  # Lambda Artifact Keys
+  # --------------------------------------------------
   ProducerZipKey:
     Type: String
     Default: lambdas/producer.zip
@@ -23,27 +29,38 @@ Parameters:
     Type: String
     Default: lambdas/replay.zip
 
+  # --------------------------------------------------
+  # Core Infra (from core-infra stack)
+  # --------------------------------------------------
   KinesisStreamArn:
     Type: String
-    Description: Existing Kinesis stream ARN
+    Description: Kinesis stream ARN
 
   KinesisStreamName:
     Type: String
-    Description: Existing Kinesis stream name
+    Description: Kinesis stream name
+
+  DynamoTableName:
+    Type: String
+    Description: DynamoDB latest-state table name
+
+  SnsTopicName:
+    Type: String
+    Description: SNS alerts topic name
 
   DlqArn:
     Type: String
-    Description: Existing DLQ ARN
+    Description: SQS Dead Letter Queue ARN
 
   DlqUrl:
     Type: String
-    Description: Existing DLQ URL
+    Description: SQS Dead Letter Queue URL
 
 Resources:
 
-  # --------------------------------------------------
+  # ==================================================
   # Producer Lambda
-  # --------------------------------------------------
+  # ==================================================
   EarthquakeProducerLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -61,9 +78,9 @@ Resources:
           KINESIS_STREAM_NAME: !Ref KinesisStreamName
           USGS_URL: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson
 
-  # --------------------------------------------------
+  # ==================================================
   # Consumer Lambda
-  # --------------------------------------------------
+  # ==================================================
   EarthquakeConsumerLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -78,16 +95,16 @@ Resources:
       MemorySize: 256
       Environment:
         Variables:
-          DDB_TABLE_NAME: earthquake-lambda-architecture-latest
-          SNS_TOPIC_NAME: earthquake-lambda-architecture-alerts
+          DDB_TABLE_NAME: !Ref DynamoTableName
+          SNS_TOPIC_NAME: !Ref SnsTopicName
           RAW_S3_PREFIX: earthquake-lambda-architecture/raw/
           SERVING_S3_PREFIX: earthquake-lambda-architecture/serving/
       DeadLetterConfig:
         TargetArn: !Ref DlqArn
 
-  # --------------------------------------------------
-  # Kinesis → Consumer Trigger
-  # --------------------------------------------------
+  # ==================================================
+  # Kinesis → Consumer Event Mapping
+  # ==================================================
   EarthquakeConsumerKinesisMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
@@ -97,9 +114,9 @@ Resources:
       BatchSize: 100
       Enabled: true
 
-  # --------------------------------------------------
-  # Replay Lambda
-  # --------------------------------------------------
+  # ==================================================
+  # Replay Lambda (DLQ → Kinesis)
+  # ==================================================
   EarthquakeReplayLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -116,3 +133,23 @@ Resources:
         Variables:
           DLQ_URL: !Ref DlqUrl
           KINESIS_STREAM_NAME: !Ref KinesisStreamName
+
+Outputs:
+
+  ProducerLambdaArn:
+    Description: Producer Lambda ARN
+    Value: !GetAtt EarthquakeProducerLambda.Arn
+    Export:
+      Name: EarthquakeProducerLambdaArn
+
+  ConsumerLambdaArn:
+    Description: Consumer Lambda ARN
+    Value: !GetAtt EarthquakeConsumerLambda.Arn
+    Export:
+      Name: EarthquakeConsumerLambdaArn
+
+  ReplayLambdaArn:
+    Description: Replay Lambda ARN
+    Value: !GetAtt EarthquakeReplayLambda.Arn
+    Export:
+      Name: EarthquakeReplayLambdaArn
