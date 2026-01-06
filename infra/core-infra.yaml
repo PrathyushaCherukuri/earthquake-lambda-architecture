@@ -1,61 +1,78 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Earthquake Lambda Architecture - Core (reference existing resources)
+Description: Earthquake Lambda Architecture - Core (reference existing resources only)
 
 Parameters:
   ExistingBucketName:
     Type: String
-    Description: Existing S3 bucket for raw/curated/serving data
+    Description: Existing S3 bucket for raw, curated, and serving data
 
   KinesisStreamArn:
     Type: String
+    Description: Existing Kinesis stream ARN
 
   KinesisStreamName:
     Type: String
+    Description: Existing Kinesis stream name
 
   DynamoTableName:
     Type: String
+    Description: Existing DynamoDB table name
 
   DynamoTableArn:
     Type: String
+    Description: Existing DynamoDB table ARN
 
   SnsTopicArn:
     Type: String
+    Description: Existing SNS topic ARN
 
   DlqArn:
     Type: String
+    Description: Existing SQS DLQ ARN
+
+Resources:
+  NoOp:
+    Type: AWS::CloudFormation::WaitConditionHandle
 
 Outputs:
   BucketName:
+    Description: S3 bucket used by the project
     Value: !Ref ExistingBucketName
     Export:
       Name: EarthquakeBucketName
 
   KinesisStreamArn:
+    Description: Kinesis stream ARN
     Value: !Ref KinesisStreamArn
     Export:
       Name: EarthquakeKinesisStreamArn
 
   KinesisStreamName:
+    Description: Kinesis stream name
     Value: !Ref KinesisStreamName
     Export:
       Name: EarthquakeKinesisStreamName
 
   DynamoTableName:
+    Description: DynamoDB table name
     Value: !Ref DynamoTableName
     Export:
       Name: EarthquakeDynamoTableName
 
   DynamoTableArn:
+    Description: DynamoDB table ARN
     Value: !Ref DynamoTableArn
     Export:
       Name: EarthquakeDynamoTableArn
 
   SnsTopicArn:
+    Description: SNS alerts topic ARN
     Value: !Ref SnsTopicArn
     Export:
       Name: EarthquakeAlertsTopicArn
 
   DlqArn:
+    Description: SQS DLQ ARN
     Value: !Ref DlqArn
     Export:
       Name: EarthquakeDlqArn
