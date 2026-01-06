@@ -1,5 +1,9 @@
 version: 0.2
 
+env:
+  variables:
+    ARTIFACT_BUCKET: prathyusha-earthquake-artifacts
+
 phases:
   install:
     runtime-versions:
@@ -7,18 +11,18 @@ phases:
 
   build:
     commands:
-      - echo "Zipping Lambda functions"
+      - echo "Packaging Lambda functions"
       - mkdir -p dist
 
-      - cd lambdas/producer && zip -r ../../dist/producer.zip . && cd ../..
-      - cd lambdas/consumer && zip -r ../../dist/consumer.zip . && cd ../..
-      - cd lambdas/replay && zip -r ../../dist/replay.zip . && cd ../..
+      - zip -r dist/producer.zip lambdas/producer
+      - zip -r dist/consumer.zip lambdas/consumer
+      - zip -r dist/replay.zip lambdas/replay
 
-      - echo "Build completed"
+      - echo "Uploading Lambda artifacts to S3"
+      - aws s3 cp dist/producer.zip s3://$ARTIFACT_BUCKET/producer.zip
+      - aws s3 cp dist/consumer.zip s3://$ARTIFACT_BUCKET/consumer.zip
+      - aws s3 cp dist/replay.zip   s3://$ARTIFACT_BUCKET/replay.zip
 
 artifacts:
   files:
-    - dist/*
-    - infra/*
-    - glue/*
-    - serving/*
+    - infra/**/*
