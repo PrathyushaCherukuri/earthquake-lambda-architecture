@@ -1,27 +1,32 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Glue batch infrastructure for Earthquake Lambda Architecture
-
-Parameters:
-  SharedRoleArn:
-    Type: String
-    Description: ARN of shared IAM role
+Description: Glue batch job for Earthquake Lambda Architecture
 
 Resources:
 
-  EarthquakeGlueJob:
+  EarthquakeRawToCuratedJob:
     Type: AWS::Glue::Job
     Properties:
       Name: earthquake-raw-to-curated
-      Role: !Ref SharedRoleArn
+      Role: arn:aws:iam::430006376054:role/service-role/AWSGlueServiceRole
       Command:
         Name: glueetl
-        ScriptLocation: s3://PLACEHOLDER_BUCKET/glue/raw_to_curated.py
-        PythonVersion: 3
-      DefaultArguments:
-        "--job-language": "python"
-        "--enable-metrics": ""
-      GlueVersion: "3.0"
-      NumberOfWorkers: 2
+        ScriptLocation: s3://prathyusha-project/earthquake-lambda-architecture/glue/raw_to_curated.py
+        PythonVersion: "3"
+      GlueVersion: "4.0"
       WorkerType: G.1X
+      NumberOfWorkers: 2
       ExecutionProperty:
         MaxConcurrentRuns: 1
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": "true"
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-spark-ui": "true"
+        "--spark-event-logs-path": "s3://prathyusha-project/earthquake-lambda-architecture/glue/spark-logs/"
+      Timeout: 30
+      MaxRetries: 1
+
+Outputs:
+  GlueJobName:
+    Description: Name of the Glue batch job
+    Value: earthquake-raw-to-curated

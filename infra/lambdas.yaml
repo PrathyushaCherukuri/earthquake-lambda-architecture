@@ -3,6 +3,9 @@ Description: Lambda functions for Earthquake Lambda Architecture
 
 Resources:
 
+  # --------------------------------------------------
+  # Producer Lambda
+  # --------------------------------------------------
   EarthquakeProducerLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -20,6 +23,9 @@ Resources:
           KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
           USGS_URL: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson
 
+  # --------------------------------------------------
+  # Consumer Lambda
+  # --------------------------------------------------
   EarthquakeConsumerLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -36,6 +42,41 @@ Resources:
         Variables:
           DDB_TABLE_NAME: earthquake-lambda-architecture-latest
           SNS_TOPIC_NAME: earthquake-lambda-architecture-alerts
-          DLQ_QUEUE_NAME: earthquake-lambda-architecture-dlq
           RAW_S3_PREFIX: earthquake-lambda-architecture/raw/
           SERVING_S3_PREFIX: earthquake-lambda-architecture/serving/
+      DeadLetterConfig:
+        TargetArn: arn:aws:sqs:eu-west-2:430006376054:earthquake-lambda-architecture-dlq
+
+  # --------------------------------------------------
+  # Kinesis → Consumer Trigger
+  # --------------------------------------------------
+  EarthquakeConsumerKinesisMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: arn:aws:kinesis:eu-west-2:430006376054:stream/earthquake-lambda-architecture-stream
+      FunctionName: !Ref EarthquakeConsumerLambda
+      StartingPosition: LATEST
+      BatchSize: 100
+      Enabled: true
+
+  # --------------------------------------------------
+  # Replay Lambda (DLQ → Kinesis)
+  # --------------------------------------------------
+  EarthquakeReplayLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: earthquake-replay
+      Runtime: python3.9
+      Handler: app.lambda_handler
+      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
+      Code:
+        S3Bucket: prathyusha-earthquake-artifacts
+        S3Key: lambdas/replay.zip
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          DLQ_URL: https://sqs.eu-west-2.amazonaws.com/430006376054/earthquake-lambda-architecture-dlq
+          KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
+
+  

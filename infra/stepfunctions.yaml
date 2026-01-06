@@ -1,38 +1,31 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Step Functions orchestration for Earthquake Lambda Architecture
-
-Parameters:
-  SharedRoleArn:
-    Type: String
-    Description: ARN of shared IAM role
+Description: Step Function for replaying failed earthquake events
 
 Resources:
 
-  EarthquakeStateMachine:
+  EarthquakeReplayStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
-      StateMachineName: earthquake-orchestration
-      RoleArn: !Ref SharedRoleArn
-      DefinitionString: |
-        {
-          "Comment": "Orchestration for Earthquake data pipeline",
-          "StartAt": "RunProducer",
-          "States": {
-            "RunProducer": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "earthquake-producer"
-              },
-              "Next": "RunGlueBatch"
-            },
-            "RunGlueBatch": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::glue:startJobRun.sync",
-              "Parameters": {
-                "JobName": "earthquake-raw-to-curated"
-              },
-              "End": true
+      StateMachineName: earthquake-replay-state-machine
+      RoleArn: arn:aws:iam::430006376054:role/service-role/StepFunctions-earthquake-batch-orchestration-role-opc1s30hm
+      DefinitionString:
+        Fn::Sub: |
+          {
+            "Comment": "Replay failed earthquake events from DLQ back to Kinesis",
+            "StartAt": "ReplayFailedEvents",
+            "States": {
+              "ReplayFailedEvents": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "earthquake-replay"
+                },
+                "End": true
+              }
             }
           }
-        }
+
+Outputs:
+  ReplayStateMachineArn:
+    Description: ARN of the replay Step Function
+    Value: !Ref EarthquakeReplayStateMachine
