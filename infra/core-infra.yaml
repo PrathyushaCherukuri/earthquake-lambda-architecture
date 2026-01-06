@@ -1,100 +1,61 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Earthquake Lambda Architecture - Core Infrastructure (reuse existing S3 bucket)
+Description: Earthquake Lambda Architecture - Core (reference existing resources)
 
 Parameters:
-  ProjectName:
-    Type: String
-    Default: earthquake-lambda-architecture
-
   ExistingBucketName:
     Type: String
-    Default: prathyusha-project
-    Description: Existing S3 bucket used for raw, curated, and serving data
+    Description: Existing S3 bucket for raw/curated/serving data
 
-Resources:
+  KinesisStreamArn:
+    Type: String
 
-  # --------------------------------------------------
-  # Kinesis Stream
-  # --------------------------------------------------
-  EarthquakeKinesisStream:
-    Type: AWS::Kinesis::Stream
-    Properties:
-      Name: !Sub "${ProjectName}-stream"
-      ShardCount: 1
-      RetentionPeriodHours: 24
+  KinesisStreamName:
+    Type: String
 
-  # --------------------------------------------------
-  # DynamoDB Table (Latest State)
-  # --------------------------------------------------
-  EarthquakeLatestTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "${ProjectName}-latest"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: quake_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: quake_id
-          KeyType: HASH
+  DynamoTableName:
+    Type: String
 
-  # --------------------------------------------------
-  # SNS Topic (Alerts)
-  # --------------------------------------------------
-  EarthquakeAlertsTopic:
-    Type: AWS::SNS::Topic
-    Properties:
-      TopicName: !Sub "${ProjectName}-alerts"
+  DynamoTableArn:
+    Type: String
 
-  # --------------------------------------------------
-  # SQS Dead Letter Queue
-  # --------------------------------------------------
-  EarthquakeDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "${ProjectName}-dlq"
-      MessageRetentionPeriod: 1209600  # 14 days
+  SnsTopicArn:
+    Type: String
+
+  DlqArn:
+    Type: String
 
 Outputs:
-
   BucketName:
-    Description: Existing S3 bucket used by the project
     Value: !Ref ExistingBucketName
     Export:
       Name: EarthquakeBucketName
 
+  KinesisStreamArn:
+    Value: !Ref KinesisStreamArn
+    Export:
+      Name: EarthquakeKinesisStreamArn
+
   KinesisStreamName:
-    Description: Kinesis stream name
-    Value: !Ref EarthquakeKinesisStream
+    Value: !Ref KinesisStreamName
     Export:
       Name: EarthquakeKinesisStreamName
 
   DynamoTableName:
-    Description: DynamoDB latest-state table
-    Value: !Ref EarthquakeLatestTable
+    Value: !Ref DynamoTableName
     Export:
       Name: EarthquakeDynamoTableName
 
+  DynamoTableArn:
+    Value: !Ref DynamoTableArn
+    Export:
+      Name: EarthquakeDynamoTableArn
+
   SnsTopicArn:
-    Description: SNS alerts topic ARN
-    Value: !Ref EarthquakeAlertsTopic
+    Value: !Ref SnsTopicArn
     Export:
       Name: EarthquakeAlertsTopicArn
 
   DlqArn:
-    Description: SQS DLQ ARN
-    Value: !GetAtt EarthquakeDLQ.Arn
+    Value: !Ref DlqArn
     Export:
       Name: EarthquakeDlqArn
-      
-  KinesisStreamArn:
-    Description: Kinesis stream ARN
-    Value: !GetAtt EarthquakeKinesisStream.Arn
-    Export:
-      Name: EarthquakeKinesisStreamArn
-
-  DynamoTableArn:
-    Description: DynamoDB table ARN
-    Value: !GetAtt EarthquakeLatestTable.Arn
-    Export:
-      Name: EarthquakeDynamoTableArn
