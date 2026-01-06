@@ -8,17 +8,15 @@ Resources:
     Properties:
       Name: earthquake-production-pipeline
 
-      RoleArn: arn:aws:iam::430006376054:role/service-role/AWSCodePipelineServiceRole
-
       ArtifactStore:
         Type: S3
         Location: prathyusha-earthquake-artifacts
 
       Stages:
 
-        # -------------------------
+        # ==================================================
         # SOURCE
-        # -------------------------
+        # ==================================================
         - Name: Source
           Actions:
             - Name: GitHubSource
@@ -34,10 +32,11 @@ Resources:
                 Repo: earthquake-lambda-architecture
                 Branch: main
                 OAuthToken: "{{resolve:secretsmanager:github-token-prathyusha:SecretString:token}}"
+              RunOrder: 1
 
-        # -------------------------
+        # ==================================================
         # BUILD
-        # -------------------------
+        # ==================================================
         - Name: Build
           Actions:
             - Name: BuildArtifacts
@@ -52,10 +51,11 @@ Resources:
                 - Name: BuildOutput
               Configuration:
                 ProjectName: earthquake-build
+              RunOrder: 1
 
-        # -------------------------
-        # DEPLOY STREAMING
-        # -------------------------
+        # ==================================================
+        # DEPLOY CORE / STREAMING
+        # ==================================================
         - Name: DeployStreaming
           Actions:
             - Name: DeployStreamingStack
@@ -68,13 +68,14 @@ Resources:
                 - Name: BuildOutput
               Configuration:
                 ActionMode: CREATE_UPDATE
-                StackName: earthquake-streaming
-                TemplatePath: BuildOutput::infra/streaming.yaml
+                StackName: earthquake-core-infra
+                TemplatePath: BuildOutput::infra/core-infra.yaml
                 Capabilities: CAPABILITY_NAMED_IAM
+              RunOrder: 1
 
-        # -------------------------
+        # ==================================================
         # DEPLOY LAMBDAS
-        # -------------------------
+        # ==================================================
         - Name: DeployLambdas
           Actions:
             - Name: DeployLambdaStack
@@ -90,10 +91,22 @@ Resources:
                 StackName: earthquake-lambdas
                 TemplatePath: BuildOutput::infra/lambdas.yaml
                 Capabilities: CAPABILITY_NAMED_IAM
+                ParameterOverrides: |
+                  {
+                    "LambdaExecutionRoleArn": "arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD",
+                    "ArtifactBucket": "prathyusha-earthquake-artifacts",
+                    "KinesisStreamArn": "arn:aws:kinesis:eu-west-2:430006376054:stream/earthquake-lambda-architecture-stream",
+                    "KinesisStreamName": "earthquake-lambda-architecture-stream",
+                    "DynamoTableName": "earthquake-lambda-architecture-latest",
+                    "SnsTopicName": "earthquake-lambda-architecture-alerts",
+                    "DlqArn": "arn:aws:sqs:eu-west-2:430006376054:earthquake-lambda-architecture-dlq",
+                    "DlqUrl": "https://sqs.eu-west-2.amazonaws.com/430006376054/earthquake-lambda-architecture-dlq"
+                  }
+              RunOrder: 1
 
-        # -------------------------
+        # ==================================================
         # DEPLOY GLUE
-        # -------------------------
+        # ==================================================
         - Name: DeployGlue
           Actions:
             - Name: DeployGlueStack
@@ -109,10 +122,11 @@ Resources:
                 StackName: earthquake-glue
                 TemplatePath: BuildOutput::infra/glue.yaml
                 Capabilities: CAPABILITY_NAMED_IAM
+              RunOrder: 1
 
-        # -------------------------
+        # ==================================================
         # DEPLOY STEP FUNCTIONS
-        # -------------------------
+        # ==================================================
         - Name: DeployOrchestration
           Actions:
             - Name: DeployStepFunctionsStack
@@ -128,3 +142,4 @@ Resources:
                 StackName: earthquake-stepfunctions
                 TemplatePath: BuildOutput::infra/stepfunctions.yaml
                 Capabilities: CAPABILITY_NAMED_IAM
+              RunOrder: 1
