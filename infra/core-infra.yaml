@@ -86,3 +86,15 @@ Outputs:
     Value: !GetAtt EarthquakeDLQ.Arn
     Export:
       Name: EarthquakeDlqArn
+      
+  KinesisStreamArn:
+    Description: Kinesis stream ARN
+    Value: !GetAtt EarthquakeKinesisStream.Arn
+    Export:
+      Name: EarthquakeKinesisStreamArn
+
+  DynamoTableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt EarthquakeLatestTable.Arn
+    Export:
+      Name: EarthquakeDynamoTableArn
