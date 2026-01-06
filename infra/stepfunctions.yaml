@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Master orchestration with retries, catch, and alerts
+Description: Master orchestration with retries, catch, and SNS alerts for Earthquake Lambda Architecture
 
 Parameters:
 
@@ -13,9 +13,11 @@ Parameters:
 
   ProducerLambdaArn:
     Type: String
+    Description: ARN of earthquake producer Lambda
 
   ReplayLambdaArn:
     Type: String
+    Description: ARN of earthquake replay Lambda
 
   GlueJobName:
     Type: String
@@ -23,7 +25,7 @@ Parameters:
 
   AlertsTopicArn:
     Type: String
-    Description: SNS topic ARN for failure alerts
+    Description: SNS topic ARN for pipeline failure alerts
 
 Resources:
 
@@ -45,16 +47,24 @@ Resources:
                 "FunctionName": "${ProducerLambdaArn}",
                 "Payload": {}
               },
-              "Retry": [{
-                "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-                "IntervalSeconds": 5,
-                "MaxAttempts": 3,
-                "BackoffRate": 2
-              }],
-              "Catch": [{
-                "ErrorEquals": ["States.ALL"],
-                "Next": "NotifyFailure"
-              }],
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException"
+                  ],
+                  "IntervalSeconds": 5,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ],
               "Next": "WaitForStreaming"
             },
 
@@ -71,11 +81,13 @@ Resources:
                 "FunctionName": "${ReplayLambdaArn}",
                 "Payload": {}
               },
-              "Retry": [{
-                "ErrorEquals": ["States.ALL"],
-                "IntervalSeconds": 10,
-                "MaxAttempts": 2
-              }],
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2
+                }
+              ],
               "Next": "RunGlueBatch"
             },
 
@@ -85,15 +97,19 @@ Resources:
               "Parameters": {
                 "JobName": "${GlueJobName}"
               },
-              "Retry": [{
-                "ErrorEquals": ["States.ALL"],
-                "IntervalSeconds": 30,
-                "MaxAttempts": 2
-              }],
-              "Catch": [{
-                "ErrorEquals": ["States.ALL"],
-                "Next": "NotifyFailure"
-              }],
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "IntervalSeconds": 30,
+                  "MaxAttempts": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "NotifyFailure"
+                }
+              ],
               "End": true
             },
 
@@ -102,21 +118,24 @@ Resources:
               "Resource": "arn:aws:states:::sns:publish",
               "Parameters": {
                 "TopicArn": "${AlertsTopicArn}",
+                "Subject": "Earthquake Pipeline Failure",
                 "Message": {
-                  "Fn::Sub": "Earthquake pipeline failed. Execution: ${$}"
-                },
-                "Subject": "Earthquake Pipeline Failure"
+                  "ExecutionName.$": "$$.Execution.Name",
+                  "StateMachine.$": "$$.StateMachine.Name",
+                  "StartTime.$": "$$.Execution.StartTime"
+                }
               },
               "Next": "FailState"
             },
 
             "FailState": {
               "Type": "Fail",
-              "Cause": "Pipeline failed"
+              "Cause": "Earthquake pipeline failed"
             }
           }
         }
 
 Outputs:
   MasterStateMachineArn:
+    Description: ARN of the master Step Function
     Value: !Ref EarthquakeMasterStateMachine
