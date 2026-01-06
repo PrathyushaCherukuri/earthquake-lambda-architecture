@@ -1,31 +1,58 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Step Function for replaying failed earthquake events
+Description: Step Function for replay + batch orchestration (Earthquake Lambda Architecture)
+
+Parameters:
+
+  StateMachineName:
+    Type: String
+    Default: earthquake-orchestration
+
+  StepFunctionRoleArn:
+    Type: String
+    Description: Existing IAM role ARN for Step Functions
+
+  ReplayLambdaArn:
+    Type: String
+    Description: ARN of the replay Lambda function
+
+  GlueJobName:
+    Type: String
+    Default: earthquake-raw-to-curated
 
 Resources:
 
-  EarthquakeReplayStateMachine:
+  EarthquakeOrchestrationStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
-      StateMachineName: earthquake-replay-state-machine
-      RoleArn: arn:aws:iam::430006376054:role/service-role/StepFunctions-earthquake-batch-orchestration-role-opc1s30hm
-      DefinitionString:
-        Fn::Sub: |
-          {
-            "Comment": "Replay failed earthquake events from DLQ back to Kinesis",
-            "StartAt": "ReplayFailedEvents",
-            "States": {
-              "ReplayFailedEvents": {
-                "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
-                "Parameters": {
-                  "FunctionName": "earthquake-replay"
-                },
-                "End": true
-              }
+      StateMachineName: !Ref StateMachineName
+      RoleArn: !Ref StepFunctionRoleArn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Orchestrates replay and batch processing for earthquake data",
+          "StartAt": "ReplayDLQ",
+          "States": {
+            "ReplayDLQ": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ReplayLambdaArn}",
+                "Payload": {}
+              },
+              "ResultPath": "$.replayResult",
+              "Next": "RunGlueBatch"
+            },
+            "RunGlueBatch": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::glue:startJobRun.sync",
+              "Parameters": {
+                "JobName": "${GlueJobName}"
+              },
+              "End": true
             }
           }
+        }
 
 Outputs:
-  ReplayStateMachineArn:
-    Description: ARN of the replay Step Function
-    Value: !Ref EarthquakeReplayStateMachine
+  OrchestrationStateMachineArn:
+    Description: ARN of the orchestration Step Function
+    Value: !Ref EarthquakeOrchestrationStateMachine

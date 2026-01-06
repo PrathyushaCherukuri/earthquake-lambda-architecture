@@ -1,5 +1,43 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Lambda functions for Earthquake Lambda Architecture
+Description: Lambda functions for Earthquake Lambda Architecture (reuse existing ARNs)
+
+Parameters:
+
+  LambdaExecutionRoleArn:
+    Type: String
+    Description: Existing IAM role ARN for Lambda & Step Functions
+
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket containing lambda zip artifacts
+
+  ProducerZipKey:
+    Type: String
+    Default: lambdas/producer.zip
+
+  ConsumerZipKey:
+    Type: String
+    Default: lambdas/consumer.zip
+
+  ReplayZipKey:
+    Type: String
+    Default: lambdas/replay.zip
+
+  KinesisStreamArn:
+    Type: String
+    Description: Existing Kinesis stream ARN
+
+  KinesisStreamName:
+    Type: String
+    Description: Existing Kinesis stream name
+
+  DlqArn:
+    Type: String
+    Description: Existing DLQ ARN
+
+  DlqUrl:
+    Type: String
+    Description: Existing DLQ URL
 
 Resources:
 
@@ -12,15 +50,15 @@ Resources:
       FunctionName: earthquake-producer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
+      Role: !Ref LambdaExecutionRoleArn
       Code:
-        S3Bucket: prathyusha-earthquake-artifacts
-        S3Key: lambdas/producer.zip
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ProducerZipKey
       Timeout: 60
       MemorySize: 256
       Environment:
         Variables:
-          KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
+          KINESIS_STREAM_NAME: !Ref KinesisStreamName
           USGS_URL: https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson
 
   # --------------------------------------------------
@@ -32,10 +70,10 @@ Resources:
       FunctionName: earthquake-consumer
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
+      Role: !Ref LambdaExecutionRoleArn
       Code:
-        S3Bucket: prathyusha-earthquake-artifacts
-        S3Key: lambdas/consumer.zip
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ConsumerZipKey
       Timeout: 60
       MemorySize: 256
       Environment:
@@ -45,7 +83,7 @@ Resources:
           RAW_S3_PREFIX: earthquake-lambda-architecture/raw/
           SERVING_S3_PREFIX: earthquake-lambda-architecture/serving/
       DeadLetterConfig:
-        TargetArn: arn:aws:sqs:eu-west-2:430006376054:earthquake-lambda-architecture-dlq
+        TargetArn: !Ref DlqArn
 
   # --------------------------------------------------
   # Kinesis → Consumer Trigger
@@ -53,14 +91,14 @@ Resources:
   EarthquakeConsumerKinesisMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      EventSourceArn: arn:aws:kinesis:eu-west-2:430006376054:stream/earthquake-lambda-architecture-stream
+      EventSourceArn: !Ref KinesisStreamArn
       FunctionName: !Ref EarthquakeConsumerLambda
       StartingPosition: LATEST
       BatchSize: 100
       Enabled: true
 
   # --------------------------------------------------
-  # Replay Lambda (DLQ → Kinesis)
+  # Replay Lambda
   # --------------------------------------------------
   EarthquakeReplayLambda:
     Type: AWS::Lambda::Function
@@ -68,15 +106,13 @@ Resources:
       FunctionName: earthquake-replay
       Runtime: python3.9
       Handler: app.lambda_handler
-      Role: arn:aws:iam::430006376054:role/earthquake-stepfunction-s-ConsumerLambdaExecutionRo-pmNzOHWiNlBD
+      Role: !Ref LambdaExecutionRoleArn
       Code:
-        S3Bucket: prathyusha-earthquake-artifacts
-        S3Key: lambdas/replay.zip
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ReplayZipKey
       Timeout: 60
       MemorySize: 256
       Environment:
         Variables:
-          DLQ_URL: https://sqs.eu-west-2.amazonaws.com/430006376054/earthquake-lambda-architecture-dlq
-          KINESIS_STREAM_NAME: earthquake-lambda-architecture-stream
-
-  
+          DLQ_URL: !Ref DlqUrl
+          KINESIS_STREAM_NAME: !Ref KinesisStreamName
