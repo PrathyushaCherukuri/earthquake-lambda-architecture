@@ -15,19 +15,19 @@ Parameters:
     Description: S3 bucket containing lambda zip artifacts
 
   # --------------------------------------------------
-  # Lambda Artifact Keys
+  # Lambda Artifact Keys (FIXED)
   # --------------------------------------------------
   ProducerZipKey:
     Type: String
-    Default: lambdas/producer.zip
+    Default: producer.zip
 
   ConsumerZipKey:
     Type: String
-    Default: lambdas/consumer.zip
+    Default: consumer.zip
 
   ReplayZipKey:
     Type: String
-    Default: lambdas/replay.zip
+    Default: replay.zip
 
   # --------------------------------------------------
   # Core Infra (from core-infra stack)
