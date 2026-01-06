@@ -33,7 +33,7 @@ Resources:
                 Owner: PrathyushaCherukuri
                 Repo: earthquake-lambda-architecture
                 Branch: main
-                OAuthToken: "{{resolve:secretsmanager:github-token:SecretString:token}}"
+                OAuthToken: "{{resolve:secretsmanager:github-token-prathyusha:SecretString:token}}"
 
         # -------------------------
         # BUILD
