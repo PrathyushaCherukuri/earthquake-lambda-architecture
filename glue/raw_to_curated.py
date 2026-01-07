@@ -9,10 +9,8 @@ from pyspark.sql.functions import (
     from_unixtime,
     input_file_name,
     regexp_extract,
-    lit,
-    row_number
+    lit
 )
-from pyspark.sql.window import Window
 
 # --------------------
 # Glue boilerplate
@@ -25,22 +23,18 @@ job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
 # --------------------
-# Project paths
+# Paths
 # --------------------
 PROJECT_PREFIX = "earthquake-lambda-architecture"
 
-RAW_PATH = (
-    f"s3://prathyusha-project/"
-    f"{PROJECT_PREFIX}/raw/"
-)
-
+RAW_PATH = f"s3://prathyusha-project/{PROJECT_PREFIX}/raw/"
 CURATED_V2_PATH = (
     f"s3://prathyusha-project/"
     f"{PROJECT_PREFIX}/curated/earthquakes_history_v2/"
 )
 
 # --------------------
-# 1) Read ALL raw JSON data
+# 1) Read ALL raw data
 # --------------------
 df = (
     spark.read
@@ -49,7 +43,7 @@ df = (
 )
 
 # --------------------
-# 2) Extract dt/hour from S3 file path (ROBUST)
+# 2) Extract dt/hour from S3 path
 # --------------------
 df = df.withColumn("_file", input_file_name())
 
@@ -72,7 +66,7 @@ df = df.withColumn(
 )
 
 # --------------------
-# 3) Flatten schema (matches streaming)
+# 3) Flatten schema
 # --------------------
 flat = df.select(
     col("feature.id").alias("quake_id"),
@@ -115,26 +109,16 @@ flat = flat.filter(col("quake_id").isNotNull())
 flat = flat.fillna({"mag": 0.0})
 
 # --------------------
-# 4) DEDUPLICATION (CRITICAL)
+# 4) HISTORICAL UNIQUE DEDUP (KEY LINE)
 # --------------------
-window = (
-    Window
-    .partitionBy("quake_id")
-    .orderBy(col("updated_ms").desc())
-)
-
-deduped = (
-    flat
-    .withColumn("rn", row_number().over(window))
-    .filter(col("rn") == 1)
-    .drop("rn")
-)
+# One row per earthquake across ALL history
+unique_quakes = flat.dropDuplicates(["quake_id"])
 
 # --------------------
 # 5) Enrichment
 # --------------------
 final_df = (
-    deduped
+    unique_quakes
     .withColumn(
         "event_time",
         from_unixtime(col("event_time_ms") / 1000)
@@ -150,11 +134,11 @@ final_df = (
 )
 
 # --------------------
-# 6) WRITE CLEAN CURATED DATA (BACKFILL MODE)
+# 6) WRITE CLEAN HISTORICAL DATA (BACKFILL)
 # --------------------
 (
     final_df.write
-    .mode("overwrite")        # BACKFILL ONLY
+    .mode("overwrite")          # BACKFILL ONLY
     .partitionBy("dt", "hour")
     .parquet(CURATED_V2_PATH)
 )
