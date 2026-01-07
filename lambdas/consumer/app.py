@@ -16,26 +16,14 @@ sns = boto3.client("sns")
 # Environment variables
 # --------------------
 DDB_TABLE_NAME = os.environ["DDB_TABLE_NAME"]
-SNS_TOPIC_NAME = os.environ["SNS_TOPIC_NAME"]
+SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]   # ✅ FIX
 RAW_S3_PREFIX = os.environ["RAW_S3_PREFIX"]
 SERVING_S3_PREFIX = os.environ["SERVING_S3_PREFIX"]
 
-# Fixed
+# Fixed bucket
 S3_BUCKET = "prathyusha-project"
 
 table = dynamodb.Table(DDB_TABLE_NAME)
-
-# --------------------
-# Resolve SNS Topic ARN
-# --------------------
-def get_sns_topic_arn(topic_name):
-    topics = sns.list_topics()["Topics"]
-    for t in topics:
-        if t["TopicArn"].endswith(":" + topic_name):
-            return t["TopicArn"]
-    raise Exception(f"SNS topic not found: {topic_name}")
-
-SNS_TOPIC_ARN = get_sns_topic_arn(SNS_TOPIC_NAME)
 
 # --------------------
 # Lambda handler
@@ -61,9 +49,7 @@ def lambda_handler(event, context):
         now = datetime.utcnow()
         epoch_ms = int(time.time() * 1000)
 
-        # --------------------
-        # 1) Write latest state to DynamoDB
-        # --------------------
+        # 1️⃣ DynamoDB
         table.put_item(
             Item={
                 "quake_id": quake_id,
@@ -72,9 +58,7 @@ def lambda_handler(event, context):
             }
         )
 
-        # --------------------
-        # 2) Write RAW event to S3 (NESTED)
-        # --------------------
+        # 2️⃣ RAW S3
         raw_key = (
             f"{RAW_S3_PREFIX}"
             f"dt={now.date()}/hour={now.hour}/"
@@ -88,12 +72,10 @@ def lambda_handler(event, context):
             ContentType="application/json"
         )
 
-        # --------------------
-        # 3) Write SERVING event to S3 (FLAT)
-        # --------------------
+        # 3️⃣ SERVING S3
         serving_record = {
             "quake_id": quake_id,
-            "mag": props.get("mag"),
+            "mag": mag,
             "place": props.get("place"),
             "title": props.get("title"),
             "event_time_ms": props.get("time"),
@@ -117,9 +99,7 @@ def lambda_handler(event, context):
             ContentType="application/json"
         )
 
-        # --------------------
-        # 4) Publish SNS alert (significant earthquakes)
-        # --------------------
+        # 4️⃣ SNS Alert
         if mag is not None and mag >= 4.5:
             sns.publish(
                 TopicArn=SNS_TOPIC_ARN,
