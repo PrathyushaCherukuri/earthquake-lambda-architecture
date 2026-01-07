@@ -11,12 +11,23 @@ phases:
 
   build:
     commands:
-      - echo "Packaging Lambda functions"
+      - echo "Packaging Lambda functions (app.py at zip root)"
       - mkdir -p dist
 
-      - zip -r dist/producer.zip lambdas/producer
-      - zip -r dist/consumer.zip lambdas/consumer
-      - zip -r dist/replay.zip lambdas/replay
+      # Producer
+      - cd lambdas/producer
+      - zip -r ../../dist/producer.zip .
+      - cd ../..
+
+      # Consumer
+      - cd lambdas/consumer
+      - zip -r ../../dist/consumer.zip .
+      - cd ../..
+
+      # Replay
+      - cd lambdas/replay
+      - zip -r ../../dist/replay.zip .
+      - cd ../..
 
       - echo "Uploading Lambda artifacts to S3"
       - aws s3 cp dist/producer.zip s3://$ARTIFACT_BUCKET/producer.zip
