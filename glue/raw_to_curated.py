@@ -9,8 +9,10 @@ from pyspark.sql.functions import (
     from_unixtime,
     input_file_name,
     regexp_extract,
-    lit
+    lit,
+    row_number
 )
+from pyspark.sql.window import Window
 
 # --------------------
 # Glue boilerplate
@@ -22,14 +24,19 @@ spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
-# 🔑 Project-scoped paths
+# --------------------
+# Paths (DO NOT change old ones)
+# --------------------
 PROJECT_PREFIX = "earthquake-lambda-architecture"
 
 RAW_PATH = f"s3://prathyusha-project/{PROJECT_PREFIX}/raw/earthquakes/"
-CURATED_PATH = f"s3://prathyusha-project/{PROJECT_PREFIX}/curated/earthquakes_history/"
+CURATED_V2_PATH = (
+    f"s3://prathyusha-project/"
+    f"{PROJECT_PREFIX}/curated/earthquakes_history_v2/"
+)
 
 # --------------------
-# 1) Read raw JSON (schema-safe)
+# 1) Read ALL raw data (safe backfill)
 # --------------------
 df = (
     spark.read
@@ -41,55 +48,108 @@ df = (
 # 2) Extract dt/hour from S3 path
 # --------------------
 df = df.withColumn("_file", input_file_name())
-df = df.withColumn("dt", regexp_extract(col("_file"), r"dt=([0-9\\-]+)", 1))
-df = df.withColumn("hour", regexp_extract(col("_file"), r"hour=([0-9]+)", 1))
-df = df.filter((col("dt") != "") & (col("hour") != ""))
+
+df = df.withColumn(
+    "dt",
+    regexp_extract(col("_file"), r"dt=([0-9\\-]+)", 1)
+)
+
+df = df.withColumn(
+    "hour",
+    regexp_extract(col("_file"), r"hour=([0-9]+)", 1)
+)
+
+df = df.filter(
+    (col("dt") != "") &
+    (col("hour") != "")
+)
 
 # --------------------
-# 3) Flatten schema (MATCH STREAMING)
+# 3) Flatten schema (matches streaming)
 # --------------------
 flat = df.select(
     col("feature.id").alias("quake_id"),
 
-    col("feature.properties.mag").cast("double").alias("mag"),
-    col("feature.properties.place").cast("string").alias("place"),
-    col("feature.properties.title").cast("string").alias("title"),
+    col("feature.properties.mag")
+        .cast("double")
+        .alias("mag"),
 
-    col("feature.properties.time").cast("long").alias("event_time_ms"),
-    col("feature.properties.updated").cast("long").alias("updated_ms"),
+    col("feature.properties.place")
+        .alias("place"),
 
-    col("feature.geometry.coordinates")[0].cast("double").alias("lon"),
-    col("feature.geometry.coordinates")[1].cast("double").alias("lat"),
-    col("feature.geometry.coordinates")[2].cast("double").alias("depth_km"),
+    col("feature.properties.title")
+        .alias("title"),
+
+    col("feature.properties.time")
+        .cast("long")
+        .alias("event_time_ms"),
+
+    col("feature.properties.updated")
+        .cast("long")
+        .alias("updated_ms"),
+
+    col("feature.geometry.coordinates")[0]
+        .cast("double")
+        .alias("lon"),
+
+    col("feature.geometry.coordinates")[1]
+        .cast("double")
+        .alias("lat"),
+
+    col("feature.geometry.coordinates")[2]
+        .cast("double")
+        .alias("depth_km"),
 
     col("dt"),
     col("hour")
 )
 
-# --------------------
-# 4) Clean
-# --------------------
 flat = flat.filter(col("quake_id").isNotNull())
 flat = flat.fillna({"mag": 0.0})
 
 # --------------------
-# 5) Add readable timestamps + pipeline_type
+# 4) DEDUPLICATION (CRITICAL)
 # --------------------
-final_df = (
+window = (
+    Window
+    .partitionBy("quake_id")
+    .orderBy(col("updated_ms").desc())
+)
+
+deduped = (
     flat
-    .withColumn("event_time", from_unixtime(col("event_time_ms") / 1000))
-    .withColumn("updated_time", from_unixtime(col("updated_ms") / 1000))
-    .withColumn("pipeline_type", lit("batch"))
+    .withColumn("rn", row_number().over(window))
+    .filter(col("rn") == 1)
+    .drop("rn")
 )
 
 # --------------------
-# 6) Write HISTORY (append-only)
+# 5) Enrichment
+# --------------------
+final_df = (
+    deduped
+    .withColumn(
+        "event_time",
+        from_unixtime(col("event_time_ms") / 1000)
+    )
+    .withColumn(
+        "updated_time",
+        from_unixtime(col("updated_ms") / 1000)
+    )
+    .withColumn(
+        "pipeline_type",
+        lit("batch")
+    )
+)
+
+# --------------------
+# 6) WRITE CLEAN DATA (SAFE)
 # --------------------
 (
     final_df.write
-    .mode("append")
+    .mode("overwrite")      # ONLY for first run
     .partitionBy("dt", "hour")
-    .parquet(CURATED_PATH)
+    .parquet(CURATED_V2_PATH)
 )
 
 job.commit()
