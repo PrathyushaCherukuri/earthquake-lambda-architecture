@@ -25,18 +25,22 @@ job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
 
 # --------------------
-# Paths (DO NOT change old ones)
+# Project paths
 # --------------------
 PROJECT_PREFIX = "earthquake-lambda-architecture"
 
-RAW_PATH = f"s3://prathyusha-project/{PROJECT_PREFIX}/raw/earthquakes/"
+RAW_PATH = (
+    f"s3://prathyusha-project/"
+    f"{PROJECT_PREFIX}/raw/"
+)
+
 CURATED_V2_PATH = (
     f"s3://prathyusha-project/"
     f"{PROJECT_PREFIX}/curated/earthquakes_history_v2/"
 )
 
 # --------------------
-# 1) Read ALL raw data (safe backfill)
+# 1) Read ALL raw JSON data
 # --------------------
 df = (
     spark.read
@@ -45,23 +49,26 @@ df = (
 )
 
 # --------------------
-# 2) Extract dt/hour from S3 path
+# 2) Extract dt/hour from S3 file path (ROBUST)
 # --------------------
 df = df.withColumn("_file", input_file_name())
 
 df = df.withColumn(
     "dt",
-    regexp_extract(col("_file"), r"dt=([0-9\\-]+)", 1)
+    regexp_extract(
+        col("_file"),
+        r"/dt=([0-9]{4}-[0-9]{2}-[0-9]{2})/",
+        1
+    )
 )
 
 df = df.withColumn(
     "hour",
-    regexp_extract(col("_file"), r"hour=([0-9]+)", 1)
-)
-
-df = df.filter(
-    (col("dt") != "") &
-    (col("hour") != "")
+    regexp_extract(
+        col("_file"),
+        r"/hour=([0-9]{1,2})/",
+        1
+    )
 )
 
 # --------------------
@@ -143,11 +150,11 @@ final_df = (
 )
 
 # --------------------
-# 6) WRITE CLEAN DATA (SAFE)
+# 6) WRITE CLEAN CURATED DATA (BACKFILL MODE)
 # --------------------
 (
     final_df.write
-    .mode("overwrite")      # ONLY for first run
+    .mode("overwrite")        # BACKFILL ONLY
     .partitionBy("dt", "hour")
     .parquet(CURATED_V2_PATH)
 )
