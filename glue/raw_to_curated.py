@@ -9,8 +9,10 @@ from pyspark.sql.functions import (
     from_unixtime,
     input_file_name,
     regexp_extract,
-    lit
+    lit,
+    row_number
 )
+from pyspark.sql.window import Window
 
 # --------------------
 # Glue boilerplate
@@ -34,9 +36,9 @@ CURATED_V2_PATH = (
 )
 
 # --------------------
-# 1) Read ALL raw data
+# 1) Read RAW data
 # --------------------
-df = (
+raw_df = (
     spark.read
     .option("mergeSchema", "true")
     .json(RAW_PATH)
@@ -45,9 +47,9 @@ df = (
 # --------------------
 # 2) Extract dt/hour from S3 path
 # --------------------
-df = df.withColumn("_file", input_file_name())
+raw_df = raw_df.withColumn("_file", input_file_name())
 
-df = df.withColumn(
+raw_df = raw_df.withColumn(
     "dt",
     regexp_extract(
         col("_file"),
@@ -56,7 +58,7 @@ df = df.withColumn(
     )
 )
 
-df = df.withColumn(
+raw_df = raw_df.withColumn(
     "hour",
     regexp_extract(
         col("_file"),
@@ -65,41 +67,25 @@ df = df.withColumn(
     )
 )
 
+# Safety filter
+raw_df = raw_df.filter((col("dt") != "") & (col("hour") != ""))
+
 # --------------------
 # 3) Flatten schema
 # --------------------
-flat = df.select(
+flat = raw_df.select(
     col("feature.id").alias("quake_id"),
 
-    col("feature.properties.mag")
-        .cast("double")
-        .alias("mag"),
+    col("feature.properties.mag").cast("double").alias("mag"),
+    col("feature.properties.place").alias("place"),
+    col("feature.properties.title").alias("title"),
 
-    col("feature.properties.place")
-        .alias("place"),
+    col("feature.properties.time").cast("long").alias("event_time_ms"),
+    col("feature.properties.updated").cast("long").alias("updated_ms"),
 
-    col("feature.properties.title")
-        .alias("title"),
-
-    col("feature.properties.time")
-        .cast("long")
-        .alias("event_time_ms"),
-
-    col("feature.properties.updated")
-        .cast("long")
-        .alias("updated_ms"),
-
-    col("feature.geometry.coordinates")[0]
-        .cast("double")
-        .alias("lon"),
-
-    col("feature.geometry.coordinates")[1]
-        .cast("double")
-        .alias("lat"),
-
-    col("feature.geometry.coordinates")[2]
-        .cast("double")
-        .alias("depth_km"),
+    col("feature.geometry.coordinates")[0].cast("double").alias("lon"),
+    col("feature.geometry.coordinates")[1].cast("double").alias("lat"),
+    col("feature.geometry.coordinates")[2].cast("double").alias("depth_km"),
 
     col("dt"),
     col("hour")
@@ -109,16 +95,40 @@ flat = flat.filter(col("quake_id").isNotNull())
 flat = flat.fillna({"mag": 0.0})
 
 # --------------------
-# 4) HISTORICAL UNIQUE DEDUP (KEY LINE)
+# 4) DEDUP WITHIN RAW (LATEST VERSION PER QUAKE)
 # --------------------
-# One row per earthquake across ALL history
-unique_quakes = flat.dropDuplicates(["quake_id"])
+w = Window.partitionBy("quake_id").orderBy(col("updated_ms").desc())
+
+dedup_raw = (
+    flat
+    .withColumn("rn", row_number().over(w))
+    .filter(col("rn") == 1)
+    .drop("rn")
+)
 
 # --------------------
-# 5) Enrichment
+# 5) Read EXISTING curated quake_ids
+# --------------------
+existing_quakes = (
+    spark.read
+    .parquet(CURATED_V2_PATH)
+    .select("quake_id")
+    .distinct()
+)
+
+# --------------------
+# 6) KEEP ONLY NEW QUAKE_IDS (INCREMENTAL CORE)
+# --------------------
+incremental = (
+    dedup_raw
+    .join(existing_quakes, on="quake_id", how="left_anti")
+)
+
+# --------------------
+# 7) Enrichment
 # --------------------
 final_df = (
-    unique_quakes
+    incremental
     .withColumn(
         "event_time",
         from_unixtime(col("event_time_ms") / 1000)
@@ -134,11 +144,11 @@ final_df = (
 )
 
 # --------------------
-# 6) WRITE CLEAN HISTORICAL DATA (BACKFILL)
+# 8) APPEND ONLY NEW RECORDS
 # --------------------
 (
     final_df.write
-    .mode("overwrite")          # BACKFILL ONLY
+    .mode("append")
     .partitionBy("dt", "hour")
     .parquet(CURATED_V2_PATH)
 )
