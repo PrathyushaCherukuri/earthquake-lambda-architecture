@@ -16,13 +16,14 @@ sns = boto3.client("sns")
 # Environment variables
 # --------------------
 DDB_TABLE_NAME = os.environ["DDB_TABLE_NAME"]
-SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]   # ✅ FIX
+SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 RAW_S3_PREFIX = os.environ["RAW_S3_PREFIX"]
 SERVING_S3_PREFIX = os.environ["SERVING_S3_PREFIX"]
 
-# Fixed bucket
+# Fixed S3 bucket
 S3_BUCKET = "prathyusha-project"
 
+# DynamoDB table
 table = dynamodb.Table(DDB_TABLE_NAME)
 
 # --------------------
@@ -49,7 +50,9 @@ def lambda_handler(event, context):
         now = datetime.utcnow()
         epoch_ms = int(time.time() * 1000)
 
-        # 1️⃣ DynamoDB
+        # --------------------
+        # 1) Write latest state to DynamoDB
+        # --------------------
         table.put_item(
             Item={
                 "quake_id": quake_id,
@@ -58,7 +61,9 @@ def lambda_handler(event, context):
             }
         )
 
-        # 2️⃣ RAW S3
+        # --------------------
+        # 2) Write RAW event to S3
+        # --------------------
         raw_key = (
             f"{RAW_S3_PREFIX}"
             f"dt={now.date()}/hour={now.hour}/"
@@ -72,10 +77,12 @@ def lambda_handler(event, context):
             ContentType="application/json"
         )
 
-        # 3️⃣ SERVING S3
+        # --------------------
+        # 3) Write SERVING event to S3
+        # --------------------
         serving_record = {
             "quake_id": quake_id,
-            "mag": mag,
+            "mag": props.get("mag"),
             "place": props.get("place"),
             "title": props.get("title"),
             "event_time_ms": props.get("time"),
@@ -99,7 +106,9 @@ def lambda_handler(event, context):
             ContentType="application/json"
         )
 
-        # 4️⃣ SNS Alert
+        # --------------------
+        # 4) Publish SNS alert
+        # --------------------
         if mag is not None and mag >= 4.5:
             sns.publish(
                 TopicArn=SNS_TOPIC_ARN,
