@@ -1,21 +1,18 @@
 import json
 import os
-import base64
 import boto3
 
 sqs = boto3.client("sqs")
 kinesis = boto3.client("kinesis")
 
-# Read from Lambda environment variables (CORRECT way)
 DLQ_URL = os.environ["DLQ_URL"]
 STREAM_NAME = os.environ["KINESIS_STREAM_NAME"]
 
 def lambda_handler(event, context):
     """
     Replay Lambda:
-    - Reads failed batches from SQS DLQ
-    - Extracts original Kinesis records
-    - Re-publishes them to Kinesis
+    - Reads messages from SQS DLQ
+    - Replays ONLY eligible messages back to Kinesis
     """
 
     response = sqs.receive_message(
@@ -31,34 +28,47 @@ def lambda_handler(event, context):
         return {"status": "no_messages"}
 
     replayed = 0
+    skipped = 0
 
     for msg in messages:
         body = json.loads(msg["Body"])
 
-        # Lambda DLQ for Kinesis contains "records"
-        records = body.get("records", [])
+        reason = body.get("reason")
+        payload = body.get("payload")
 
-        for record in records:
-            # Kinesis data is base64-encoded
-            payload = json.loads(
-                base64.b64decode(record["data"]).decode("utf-8")
+        # --------------------
+        # DO NOT replay noise (BY DESIGN)
+        # --------------------
+        if reason == "low_magnitude_noise":
+            print(f"Skipping replay for low magnitude quake")
+            skipped += 1
+
+            # Delete message (we intentionally drop it)
+            sqs.delete_message(
+                QueueUrl=DLQ_URL,
+                ReceiptHandle=msg["ReceiptHandle"]
             )
+            continue
 
+        # --------------------
+        # Replay valid payload
+        # --------------------
+        if payload:
             kinesis.put_record(
                 StreamName=STREAM_NAME,
                 Data=json.dumps(payload),
-                PartitionKey=payload.get("quake_id", "replay")
+                PartitionKey=payload.get("feature", {}).get("id", "replay")
             )
-
             replayed += 1
 
-        # Delete message ONLY after successful replay
+        # Delete only after successful replay
         sqs.delete_message(
             QueueUrl=DLQ_URL,
             ReceiptHandle=msg["ReceiptHandle"]
         )
 
     return {
-        "status": "replayed",
-        "records_replayed": replayed
+        "status": "completed",
+        "records_replayed": replayed,
+        "records_skipped": skipped
     }

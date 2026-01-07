@@ -11,20 +11,33 @@ from datetime import datetime
 dynamodb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 sns = boto3.client("sns")
+sqs = boto3.client("sqs")
 
 # --------------------
 # Environment variables
 # --------------------
 DDB_TABLE_NAME = os.environ["DDB_TABLE_NAME"]
-SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
+SNS_TOPIC_NAME = os.environ["SNS_TOPIC_NAME"]
 RAW_S3_PREFIX = os.environ["RAW_S3_PREFIX"]
 SERVING_S3_PREFIX = os.environ["SERVING_S3_PREFIX"]
+DLQ_URL = os.environ["DLQ_URL"]
 
-# Fixed S3 bucket
+# Fixed bucket
 S3_BUCKET = "prathyusha-project"
 
-# DynamoDB table
 table = dynamodb.Table(DDB_TABLE_NAME)
+
+# --------------------
+# Resolve SNS Topic ARN
+# --------------------
+def get_sns_topic_arn(topic_name):
+    topics = sns.list_topics()["Topics"]
+    for t in topics:
+        if t["TopicArn"].endswith(":" + topic_name):
+            return t["TopicArn"]
+    raise Exception(f"SNS topic not found: {topic_name}")
+
+SNS_TOPIC_ARN = get_sns_topic_arn(SNS_TOPIC_NAME)
 
 # --------------------
 # Lambda handler
@@ -47,6 +60,21 @@ def lambda_handler(event, context):
         if not quake_id:
             continue
 
+        # --------------------
+        # DLQ: filter low magnitude noise
+        # --------------------
+        if mag is not None and mag < 1:
+            sqs.send_message(
+                QueueUrl=DLQ_URL,
+                MessageBody=json.dumps({
+                    "reason": "low_magnitude_noise",
+                    "quake_id": quake_id,
+                    "magnitude": mag,
+                    "payload": payload
+                })
+            )
+            continue  # ❗ stop processing this record
+
         now = datetime.utcnow()
         epoch_ms = int(time.time() * 1000)
 
@@ -62,7 +90,7 @@ def lambda_handler(event, context):
         )
 
         # --------------------
-        # 2) Write RAW event to S3
+        # 2) Write RAW event to S3 (nested JSON)
         # --------------------
         raw_key = (
             f"{RAW_S3_PREFIX}"
@@ -78,11 +106,11 @@ def lambda_handler(event, context):
         )
 
         # --------------------
-        # 3) Write SERVING event to S3
+        # 3) Write SERVING event to S3 (flat JSON)
         # --------------------
         serving_record = {
             "quake_id": quake_id,
-            "mag": props.get("mag"),
+            "mag": mag,
             "place": props.get("place"),
             "title": props.get("title"),
             "event_time_ms": props.get("time"),
@@ -107,7 +135,7 @@ def lambda_handler(event, context):
         )
 
         # --------------------
-        # 4) Publish SNS alert
+        # 4) Publish SNS alert (significant earthquakes)
         # --------------------
         if mag is not None and mag >= 4.5:
             sns.publish(
